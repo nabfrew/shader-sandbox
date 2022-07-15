@@ -1,16 +1,118 @@
 @tool
 extends Sprite2D
 
+const MAX_SIZE := 1000.0
+const OCCUPIED := Color(0,1,0,0.5)
+const EMPTY := Color(0,0,0,0)
+
 var last_pos = position
 var last_size = texture.get_size()
 @export var reflected_sprites : Array[String] = []
-const MAX_SIZE := 100
 @export var WIDTH := 600
 @export var HEIGHT := 200
+@export var HORIZON : int = 120
+
 @onready var last_change = Time.get_ticks_msec()
+var scaled_images : Array
 
 func _ready() -> void:
-	material.set_shader_param("max_height", MAX_SIZE)
+	material.set_shader_param("max_size", MAX_SIZE)
+	print(reflected_sprites)
+	reflected_sprites.sort_custom(sort_by_z)
+	print(reflected_sprites)
+	scaled_images = reflected_sprites.map(get_scaled_texture_reflection)
+	
+func sort_by_z(a : String, b : String):	
+	# assumes they're on the same scene tree branch and don't have their z-index tinkered with.
+	if get_z(a) < get_z(b):
+		return true
+	return false
+
+func get_z(s : String) -> int:
+	return get_owner().get_node(s).get_index()
+
+# Copy the sprite to texture shape and size of reflection. Acounting for scaling.
+func get_scaled_texture_reflection(sprite_path : String) -> Dictionary:
+	var source_sprite : Sprite2D = get_owner().get_node(sprite_path)
+	
+	var return_dict = {"position" : source_sprite.position, "image" : Image.new()}
+	
+	
+	var source_texture : Texture2D = source_sprite.texture
+	var source_scale : Vector2 = source_sprite.scale
+	var source_image := source_texture.get_image()
+	var source_size : Vector2 = source_image.get_size()
+	var source_position : Vector2 = source_sprite.position
+	
+	var source_min := reflected_to_source_v(Vector2(0,0), source_position, source_scale)
+	source_min.x = max(0, source_min.x)
+	var source_max := reflected_to_source_v(Vector2(WIDTH, HEIGHT), source_position, source_scale)
+	source_max.x = min(source_image.get_size().x, source_max.x)
+	
+	if source_min.x >= source_max.x:
+		return return_dict
+	
+	var image : Image = Image.new()
+	image.create(round(source_size.x*source_scale.x), round(source_size.y*source_scale.y)*2, false, Image.FORMAT_RGBA8)
+	image.fill(EMPTY)
+
+	for i in range(image.get_size().x):
+		var top : Array[int] = []
+		var bottom : Array[int] = []
+		var last_transparent := true
+		var count := 1
+		for j in range(image.get_size().y):
+			var source_pixel_coordinates := Vector2i(round(float(i) / source_scale.x), round(float(j) / source_scale.y))
+			
+			if source_pixel_coordinates.x < 0 or source_pixel_coordinates.x >= source_size.x:
+				continue
+			if source_pixel_coordinates.y < 0:
+				continue
+				
+			var pixel_color : Color
+			if source_pixel_coordinates.y >= source_size.y:
+				pixel_color = EMPTY
+			else:
+				pixel_color = source_image.get_pixelv(source_pixel_coordinates)
+			
+			if pixel_color.a == 1: 
+				if top.is_empty():
+					top.append(j)
+				image.set_pixel(i, j, OCCUPIED)
+			if pixel_color.a == 0:
+				if bottom.size() < top.size(): # top value is not paired with a bottom.
+					bottom.append(j)
+				if bottom.size() == top.size():
+					if within_reflection_range(j, top, bottom):
+						image.set_pixel(i, j, Color((float(j) - float(bottom[-1])) / (HEIGHT * MAX_SIZE), 0 , 0 , 1))
+					
+		return_dict.image = image
+	return return_dict
+
+func within_reflection_range(j : int, top : Array[int], bottom : Array[int]) -> bool:
+	if top.is_empty():
+		return false
+	if j >= 2 * bottom[-1] - top[-1]:
+		top.pop_back()
+		bottom.pop_back()
+		return within_reflection_range(j, top, bottom) 
+	return true
+
+func init_reflection_with_horizon() -> Image:
+	var image : Image = Image.new()
+	image.create(WIDTH, HEIGHT, false, Image.FORMAT_RGBA8)
+	image.fill(EMPTY)
+	var h : int = HORIZON - position.y
+	var d = h
+	if h < 0:
+		h = 0
+	d = position.y + h - HORIZON
+	for y in range(h, image.get_size().y):
+		var c = Color(float(d)/(MAX_SIZE * HEIGHT), 0, 0, 1)
+		for x in range(image.get_size().x):
+			image.set_pixel(x, y, c)
+		d = d + 1
+	return image
 
 func _process(_delta: float) -> void:
 	if Time.get_ticks_msec() - last_change > 100:
@@ -23,74 +125,33 @@ func _process(_delta: float) -> void:
 			last_size = Vector2(texture.get_width(), texture.get_height())
 
 func merge_sprites() -> Image:
-	var merged_image : Image = Image.new()
-	merged_image.create(WIDTH, HEIGHT, false, Image.FORMAT_RGBA8)
-	merged_image.fill(Color(0, 0, 0, 0))
+	var merged_image : Image = init_reflection_with_horizon()
 	
-	for image in reflected_sprites:
-		merged_image = source_distance_with_alpha(image, merged_image)
-	print("R %f\tB %f" % [merged_image.get_pixel(0,0).r, merged_image.get_pixel(0,0).b])
+	for source in scaled_images:
+		for i in range(WIDTH):
+			for j in HEIGHT:
+				var current_pixel := merged_image.get_pixel(i,j)
+				if current_pixel == OCCUPIED or current_pixel == EMPTY:
+					continue # EMPTY implies above horizon
+				var c : Vector2 = (position + Vector2(i,j) - source.position)
+				var source_coordinates := Vector2i(round(c.x), round(c.y))
+				
+				if source_coordinates.x < 0 or source_coordinates.x >= source.image.get_size().x:
+					continue
+				if source_coordinates.y < 0 or source_coordinates.y >= source.image.get_size().y:
+					continue
+				
+				var source_color : Color = source.image.get_pixelv(source_coordinates)
+				
+				if source_color == OCCUPIED:
+					merged_image.set_pixel(i, j, OCCUPIED)
+					continue
+				if source_color != EMPTY:
+					merged_image.set_pixel(i, j, source_color)
+				
+				
+	
 	return merged_image
-
-func source_distance_with_alpha(source_sprite_path : String, merged_image : Image) -> Image:
-	print(source_sprite_path)
-	var source_sprite : Sprite2D = get_owner().get_node(source_sprite_path)
-	var source_texture : Texture2D = source_sprite.texture
-	var source_scale : Vector2 = source_sprite.scale
-	var source_image := source_texture.get_image()
-	var source_position : Vector2 = source_sprite.position
-	var distance_map : Image = create_distance_map(source_image)
-	
-	for i in range(WIDTH):
-		var source_x := reflected_to_source(position.x, i, source_position.x, source_scale.x)
-		if source_x < 0 or source_x >= source_image.get_size().x:
-			continue
-		for j in range(HEIGHT):
-			var reflected_pixel = Vector2i(i,j)
-			var source_pixel := reflected_to_source_v(reflected_pixel, source_position, source_scale)
-			if source_pixel.y >=0 and source_pixel.y < source_image.get_size().y:
-				var color = distance_map.get_pixelv(source_pixel)
-				merged_image.set_pixelv(reflected_pixel, color_to_set(reflected_pixel, merged_image, color))
-			if source_pixel.y >= source_image.get_size().y:
-				var pixel_value := bottom_color(source_pixel.x, distance_map, source_image)
-				var distance := (source_pixel.y - source_image.get_size().y) / MAX_SIZE
-				var color := Color(distance, distance, 0, 0) + pixel_value
-				merged_image.set_pixelv(reflected_pixel, color_to_set(reflected_pixel, merged_image, color))
-	return merged_image
-	
-func color_to_set(pixel : Vector2i, merged_image : Image, color : Color) -> Color:
-	var existing_color = merged_image.get_pixelv(pixel)
-	if existing_color.b >= 1 or color.b >= 1:
-		return Color(0, 0 ,1 ,0)
-	if (existing_color.r <= color.r and existing_color.a == 1) or color.a == 0:
-		return existing_color
-	return color
-
-func create_distance_map(image : Image) -> Image:
-	var image_map : Image = Image.new()
-	var w := image.get_width()
-	var h := image.get_height()
-	image_map.create(w, h, false, Image.FORMAT_RGBA8)
-	image_map.fill(Color(0, 0, 0, 0))
-	for i in range(w):
-		var column_has_opaque_pixels := false
-		var count := 0
-		for j in range(h):
-			if image.get_pixel(i, j).a == 1:
-				column_has_opaque_pixels = true
-				image_map.set_pixel(i, j, Color(0, 0, 1, 0)) # b == 1 indicates occupied.
-				count = 0
-			elif column_has_opaque_pixels:
-				count = count + 1
-				var n := float(count) / MAX_SIZE 
-				image_map.set_pixel(i , j, Color(n, n, 0, 1))
-	return image_map
-	
-func bottom_color(column : int, image_map : Image, image : Image) -> Color:
-	var color = image_map.get_pixel(column, image_map.get_size().y - 1) 
-	if image.get_pixel(column, image.get_size().y - 1).a != 0:
-		color = Color(0,0,0,1)
-	return color
 
 func reflected_to_source_v(reflected_coordinate : Vector2, source_position : Vector2, source_scale : Vector2) -> Vector2i:
 	return Vector2i((position + reflected_coordinate - source_position)/source_scale)
