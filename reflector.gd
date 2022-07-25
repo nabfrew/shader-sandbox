@@ -1,9 +1,11 @@
 @tool
 extends Sprite2D
 
-const MAX_SIZE := 1000.0
+const MAX_SIZE : float = 5
 const OCCUPIED := Color(0,1,0,0.5)
-const EMPTY := Color(0,0,0,0)
+const EMPTY := Color(0,0,0,0.01)
+
+@onready var color_scale : float = MAX_SIZE * float(HEIGHT)
 
 var last_pos = position
 var last_size = texture.get_size()
@@ -17,13 +19,11 @@ var scaled_images : Array
 
 func _ready() -> void:
 	material.set_shader_param("max_size", MAX_SIZE)
-	print(reflected_sprites)
 	reflected_sprites.sort_custom(sort_by_z)
-	print(reflected_sprites)
 	scaled_images = reflected_sprites.map(get_scaled_texture_reflection)
 	
-func sort_by_z(a : String, b : String):	
-	# assumes they're on the same scene tree branch and don't have their z-index tinkered with.
+func sort_by_z(a : String, b : String):
+	# assumes they're on the same scene node tree branch and don't have their z-index tinkered with.
 	if get_z(a) < get_z(b):
 		return true
 	return false
@@ -35,7 +35,7 @@ func get_z(s : String) -> int:
 func get_scaled_texture_reflection(sprite_path : String) -> Dictionary:
 	var source_sprite : Sprite2D = get_owner().get_node(sprite_path)
 	
-	var return_dict = {"position" : source_sprite.position, "image" : Image.new()}
+	var return_dict = {"path" : sprite_path, "position" : source_sprite.position, "image" : Image.new()}
 	
 	
 	var source_texture : Texture2D = source_sprite.texture
@@ -53,7 +53,7 @@ func get_scaled_texture_reflection(sprite_path : String) -> Dictionary:
 		return return_dict
 	
 	var image : Image = Image.new()
-	image.create(round(source_size.x*source_scale.x), round(source_size.y*source_scale.y)*2, false, Image.FORMAT_RGBA8)
+	image.create(round(source_size.x*source_scale.x), round(source_size.y*source_scale.y)*2, false, Image.FORMAT_RGBAF)
 	image.fill(EMPTY)
 
 	for i in range(image.get_size().x):
@@ -79,15 +79,19 @@ func get_scaled_texture_reflection(sprite_path : String) -> Dictionary:
 				if top.is_empty():
 					top.append(j)
 				image.set_pixel(i, j, OCCUPIED)
-			if pixel_color.a == 0:
+			if pixel_color.a < 1:
 				if bottom.size() < top.size(): # top value is not paired with a bottom.
 					bottom.append(j)
 				if bottom.size() == top.size():
 					if within_reflection_range(j, top, bottom):
-						image.set_pixel(i, j, Color((float(j) - float(bottom[-1])) / (HEIGHT * MAX_SIZE), 0 , 0 , 1))
+						image.set_pixel(i, j, coordinates_to_color(float(j), float(bottom[-1])))
 					
 		return_dict.image = image
 	return return_dict
+
+func coordinates_to_color(j : float, bottom : float) -> Color:
+	var red_channel : float = (j - bottom) / color_scale
+	return Color(red_channel, 0 , 0 , 1)
 
 func within_reflection_range(j : int, top : Array[int], bottom : Array[int]) -> bool:
 	if top.is_empty():
@@ -100,29 +104,40 @@ func within_reflection_range(j : int, top : Array[int], bottom : Array[int]) -> 
 
 func init_reflection_with_horizon() -> Image:
 	var image : Image = Image.new()
-	image.create(WIDTH, HEIGHT, false, Image.FORMAT_RGBA8)
+	image.create(WIDTH, HEIGHT, false, Image.FORMAT_RGBAF)
 	image.fill(EMPTY)
-	var h : int = HORIZON - position.y
-	var d = h
+	var h : float = HORIZON - position.y
+	var d : float = h
 	if h < 0:
 		h = 0
 	d = position.y + h - HORIZON
 	for y in range(h, image.get_size().y):
-		var c = Color(float(d)/(MAX_SIZE * HEIGHT), 0, 0, 1)
+		var c = Color(float(d)/ color_scale, 0, 0, 1)
 		for x in range(image.get_size().x):
 			image.set_pixel(x, y, c)
-		d = d + 1
+		d = d + 1.0
 	return image
 
 func _process(_delta: float) -> void:
+	if not Engine.is_editor_hint():
+		return
 	if Time.get_ticks_msec() - last_change > 100:
 		material.set_shader_param("y_zoom", get_viewport().get_final_transform().y.y)
 		last_change = Time.get_ticks_msec()
 		if position != last_pos or texture.get_size() != last_size:
+			update_source_positions()
 			var image : Image = merge_sprites()
-			texture.create_from_image(image)
+			var tex : ImageTexture = ImageTexture.create_from_image(image)
+			texture = tex
 			last_pos = position
 			last_size = Vector2(texture.get_width(), texture.get_height())
+
+func update_source_positions() -> void:
+	for image in scaled_images:
+		for path in reflected_sprites:
+			if image.path == path:
+				var source_sprite : Sprite2D = get_owner().get_node(path)
+				image.position = source_sprite.position
 
 func merge_sprites() -> Image:
 	var merged_image : Image = init_reflection_with_horizon()
@@ -148,9 +163,7 @@ func merge_sprites() -> Image:
 					continue
 				if source_color != EMPTY:
 					merged_image.set_pixel(i, j, source_color)
-				
-				
-	
+
 	return merged_image
 
 func reflected_to_source_v(reflected_coordinate : Vector2, source_position : Vector2, source_scale : Vector2) -> Vector2i:
