@@ -1,4 +1,4 @@
-shader_type canvas_item;
+shadjer_type canvas_item;
 uniform float y_zoom;
 uniform float max_size;
 

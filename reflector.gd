@@ -14,8 +14,17 @@ var last_size = texture.get_size()
 @export var HEIGHT := 200
 @export var HORIZON : int = 120
 
+const OCCUPIED_THRESHOLD = 0.8 # alpha >= than this will count it as occupied.
+
 @onready var last_change = Time.get_ticks_msec()
 var scaled_images : Array
+
+const TOP_D := Color(1,0,0,1)
+const OCCUPIED_D := Color.GRAY
+const BOTTOM_D  := Color(0,1,1,1)
+const REFLECTING_D := Color(0,0,1,1)
+const UNREFLECTING_D := Color(0.5,0.5,0,1)
+const REFLECTION_BOTTOM_D := Color.DARK_BLUE
 
 func _ready() -> void:
 	material.set_shader_param("max_size", MAX_SIZE)
@@ -53,28 +62,29 @@ func get_scaled_texture_reflection(sprite_path : String) -> Dictionary:
 		return return_dict
 	
 	var image : Image = Image.new()
-	image.create(round(source_size.x*source_scale.x), round(source_size.y*source_scale.y)*2, false, Image.FORMAT_RGBAF)
+	image.create(int(round(source_size.x*source_scale.x)), int(2*round(source_size.y*source_scale.y)), false, Image.FORMAT_RGBAF)
 	image.fill(EMPTY)
 
 	for i in range(image.get_size().x):
 		var top : Array[int] = []
 		var bottom : Array[int] = []
-		var last_transparent := true
-		var count := 1
 		for j in range(image.get_size().y):
-			var source_pixel_coordinates := Vector2i(round(float(i) / source_scale.x), round(float(j) / source_scale.y))
+			var source_pixel_coordinates := Vector2i(int(round(float(i) / source_scale.x)), int(round(float(j) / source_scale.y)))
 			
 			if source_pixel_coordinates.x < 0 or source_pixel_coordinates.x >= source_size.x:
 				continue
 			if source_pixel_coordinates.y < 0:
+				image.set_pixel(i, j, Color.GREEN) 
+				continue
+
+			if (true):
+				image.set_pixel(i, j, get_pixel_type(source_pixel_coordinates, source_image, top, bottom, j))
 				continue
 				
-			var pixel_color : Color
+			var pixel_color : Color = EMPTY
 			if source_pixel_coordinates.y >= source_size.y:
-				pixel_color = EMPTY
-			else:
-				pixel_color = source_image.get_pixelv(source_pixel_coordinates)
-			
+				pixel_color = Color(0,1,1,0)
+			pixel_color = source_image.get_pixelv(source_pixel_coordinates)
 			if pixel_color.a == 1: 
 				if top.is_empty():
 					top.append(j)
@@ -88,6 +98,28 @@ func get_scaled_texture_reflection(sprite_path : String) -> Dictionary:
 					
 		return_dict.image = image
 	return return_dict
+
+func get_pixel_type(source_pixel_coordinates : Vector2i, source_image : Image, top : Array, bottom : Array, j : int) -> Color:
+	# image size is 2x source size. pixel can be assumed empty, but must work out if part of reflection or not.
+	var pixel_color : Color 
+	if source_pixel_coordinates.y >= source_image.get_size().y:
+		pixel_color = Color(0,1,1,0) # todo
+	else:
+		pixel_color = source_image.get_pixelv(source_pixel_coordinates)
+	
+	if pixel_color.a == 1: # part of a feature
+		if top.is_empty() or top.size() == bottom.size(): # top of a new feature
+			top.append(j)
+			return TOP_D
+		return OCCUPIED_D
+	if pixel_color.a < 1: # not part of a feature
+		if bottom.size() < top.size(): # top value is not paired with a bottom -> this *is* the feature bottom.
+			bottom.append(j)
+			return BOTTOM_D
+		if bottom.size() == top.size():
+			if within_reflection_range(j, top, bottom):
+				return REFLECTING_D
+	return UNREFLECTING_D
 
 func coordinates_to_color(j : float, bottom : float) -> Color:
 	var red_channel : float = (j - bottom) / color_scale
@@ -146,7 +178,7 @@ func merge_sprites() -> Image:
 		for i in range(WIDTH):
 			for j in HEIGHT:
 				var current_pixel := merged_image.get_pixel(i,j)
-				if current_pixel == OCCUPIED or current_pixel == EMPTY:
+				if current_pixel == OCCUPIED_D or current_pixel == EMPTY:
 					continue # EMPTY implies above horizon
 				var c : Vector2 = (position + Vector2(i,j) - source.position)
 				var source_coordinates := Vector2i(round(c.x), round(c.y))
@@ -158,10 +190,9 @@ func merge_sprites() -> Image:
 				
 				var source_color : Color = source.image.get_pixelv(source_coordinates)
 				
-				if source_color == OCCUPIED:
-					merged_image.set_pixel(i, j, OCCUPIED)
-					continue
-				if source_color != EMPTY:
+				if source_color == OCCUPIED_D:
+					merged_image.set_pixel(i, j, OCCUPIED_D)
+				elif source_color != EMPTY:
 					merged_image.set_pixel(i, j, source_color)
 
 	return merged_image
