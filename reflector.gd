@@ -20,7 +20,6 @@ var scaled_images : Array
 
 func _ready() -> void:
 	material.set_shader_param("max_size", MAX_SIZE)
-	material.set_shader_param("horizon_height", HORIZON + position.y)
 	reflected_sprites.sort_custom(sort_by_z)
 	scaled_images = reflected_sprites.map(get_scaled_texture_reflection)
 	
@@ -120,6 +119,7 @@ func coordinates_to_color(j : float, bottom : float) -> float:
 func init_reflection_with_horizon() -> Image:
 	var image : Image = init_empty_reflection()
 	var h : float = HORIZON - position.y
+	material.set_shader_param("horizon_uv", h / HEIGHT)
 	var d : float = h
 	if h < 0:
 		h = 0

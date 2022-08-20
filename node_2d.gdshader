@@ -1,7 +1,7 @@
 shader_type canvas_item;
 uniform float y_zoom;
 uniform float max_size;
-uniform int horizon_height;
+uniform float horizon_uv;
 
 void fragment() {
 	float uv_height = SCREEN_PIXEL_SIZE.y / TEXTURE_PIXEL_SIZE.y;
@@ -25,17 +25,28 @@ void fragment() {
 	
 	vec4 c3 = (1.0 - b) * reflection + (b) * horizon;
 	vec4 final_color = vec4(0,0,0,0);
-	if (normal_pixel.a >= 1.0) {
+	if (UV.y < horizon_uv || normal_pixel.a >= 1.0) {
+	} else if (uv_r_n.y <= horizon_uv && normal_pixel.a > 0.0) {
+		final_color = mix(reflection, horizon, 1.0 - reflection_n.a);
+		final_color.a = 1.0 - reflection_n.a;
 	} else if (normal_pixel.a > 0.0 && b > 0.0) {
 		final_color = vec4(horizon.r, horizon.g, horizon.b, 1.0 - normal_pixel.a);
 	} else if(normal_pixel.a > 0.0) {
 		final_color = reflection_n_solid;
 	} else if (reflection_n.a > 0.0) {
-		final_color = mix(reflection_n_solid, horizon, 1.0-reflection_n.a);//vec4(1,0,0.75,1);
+		final_color = mix(reflection_n_solid, horizon, 1.0 - reflection_n.a);
+		final_color = vec4(reflection_n.a, 0, 0, 1); 
+		// FINISHED HERE. FOR SOME REASON THE REFLECTION CORRESPONDING TO THE TOP IS OPAQUE,
+		// RESULTING IN THIS UNWANTED OUTLINE:
 	}
 	else {
 		final_color = horizon;
 	}
 
 	COLOR = final_color;
+	
+	if (uv_r_n.y > 0.5) {
+		//COLOR = vec4(0,1,0,1);
+	}
+
 }
