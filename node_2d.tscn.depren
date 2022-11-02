@@ -1,0 +1,38 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Texture2D" uid="uid://0dpw0vpjuyju" path="res://sky.png" id="1_slx71"]
+[ext_resource type="Script" path="res://reflector.gd" id="2_g108g"]
+[ext_resource type="Texture2D" uid="uid://cmkgop0cskgbx" path="res://Yard1_island.png" id="2_mp5yx"]
+[ext_resource type="Texture2D" uid="uid://b1a3hjvsb3jap" path="res://Unnamed.png" id="2_ypuhg"]
+[ext_resource type="Shader" path="res://node_2d.gdshader" id="3_qm64c"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_bgs20"]
+shader = ExtResource("3_qm64c")
+shader_param/max_size = 1000.0
+shader_param/y_zoom = 0.890899
+
+[node name="Node2D" type="Node2D"]
+
+[node name="Sky" type="Sprite2D" parent="."]
+position = Vector2(-7, -21)
+texture = ExtResource("1_slx71")
+centered = false
+
+[node name="source" type="Sprite2D" parent="."]
+position = Vector2(375, 26)
+scale = Vector2(1.3, 1.6)
+texture = ExtResource("2_ypuhg")
+centered = false
+
+[node name="island" type="Sprite2D" parent="."]
+position = Vector2(331, 198)
+scale = Vector2(2, 1)
+texture = ExtResource("2_mp5yx")
+centered = false
+
+[node name="reflector" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_bgs20")
+position = Vector2(67, 135)
+centered = false
+script = ExtResource("2_g108g")
+reflected_sprites = ["source", "island"]

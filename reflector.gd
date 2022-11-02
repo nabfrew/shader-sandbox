@@ -19,7 +19,8 @@ var last_size = texture.get_size()
 var scaled_images : Array
 
 func _ready() -> void:
-	material.set_shader_uniform("max_size", MAX_SIZE)
+	material.set_shader_parameter("max_size", MAX_SIZE)
+	uncenter()
 	reflected_sprites.sort_custom(sort_by_z)
 	scaled_images = reflected_sprites.map(get_scaled_texture_reflection)
 	
@@ -31,6 +32,12 @@ func sort_by_z(a : String, b : String):
 
 func get_z(s : String) -> int:
 	return get_owner().get_node(s).get_index()
+
+# Just make sure all the reflected sprites aren't set to centered. It's easy to miss, and can 
+# lead to needless troubleshooting.
+func uncenter() -> void:
+	for sprite in reflected_sprites:
+		get_owner().get_node(sprite).centered = false
 
 # Copy the sprite to texture shape and size of reflection. Acounting for scaling.
 func get_scaled_texture_reflection(sprite_path : String) -> Dictionary:
@@ -119,7 +126,7 @@ func coordinates_to_color(j : float, bottom : float) -> float:
 func init_reflection_with_horizon() -> Image:
 	var image : Image = init_empty_reflection()
 	var h : float = HORIZON - position.y
-	material.set_shader_uniform("horizon_uv", h / HEIGHT)
+	material.set_shader_parameter("horizon_uv", h / HEIGHT)
 	var d : float = h
 	if h < 0:
 		h = 0
@@ -135,7 +142,7 @@ func _process(_delta: float) -> void:
 	if not Engine.is_editor_hint():
 		return
 	if Time.get_ticks_msec() - last_change > 100:
-		material.set_shader_uniform("y_zoom", get_viewport().get_final_transform().y.y)
+		material.set_shader_parameter("y_zoom", get_viewport().get_final_transform().y.y)
 		last_change = Time.get_ticks_msec()
 		
 		if position != last_pos or texture.get_size() != last_size:
